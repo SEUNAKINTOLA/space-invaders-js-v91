@@ -1,0 +1,114 @@
+# docker-compose.audio-test.yml
+# Purpose: Audio testing environment configuration for Space Invaders JS V91
+# Last Updated: 2025-01-20
+# Version: 1.0.0
+
+version: '3.9'
+
+services:
+  # Main application service for audio testing
+  audio-test-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      args:
+        NODE_ENV: test
+    container_name: space-invaders-audio-test
+    environment:
+      - NODE_ENV=test
+      - AUDIO_TESTING=true
+      - AUDIO_SAMPLE_RATE=44100
+      - AUDIO_CHANNELS=2
+      - AUDIO_BUFFER_SIZE=4096
+      - TEST_TIMEOUT=30000
+    volumes:
+      - ./tests:/app/tests
+      - ./audio-samples:/app/audio-samples
+      - ./test-results:/app/test-results
+    ports:
+      - "9323:9323"  # Test server port
+    depends_on:
+      audio-mock-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Mock audio server for consistent test environment
+  audio-mock-server:
+    image: audio-mock-server:latest
+    container_name: audio-mock-server
+    environment:
+      - MOCK_LATENCY=50
+      - SAMPLE_RATE=44100
+      - BUFFER_SIZE=4096
+    ports:
+      - "9324:9324"
+    volumes:
+      - ./audio-fixtures:/fixtures
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9324/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Audio analysis service for test validation
+  audio-analyzer:
+    image: audio-analyzer:latest
+    container_name: audio-analyzer
+    environment:
+      - ANALYZER_MODE=test
+      - FFT_SIZE=2048
+      - ANALYSIS_WINDOW=100
+    volumes:
+      - ./test-results:/analysis-data
+    depends_on:
+      - audio-test-app
+
+  # Test results collector
+  test-reporter:
+    image: test-reporter:latest
+    container_name: test-reporter
+    volumes:
+      - ./test-results:/test-results
+      - ./reports:/reports
+    environment:
+      - REPORT_FORMAT=junit,html
+      - COVERAGE_ENABLED=true
+    depends_on:
+      - audio-test-app
+      - audio-analyzer
+
+networks:
+  default:
+    name: audio-test-network
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+
+volumes:
+  test-results:
+    driver: local
+  audio-samples:
+    driver: local
+  reports:
+    driver: local
+
+configs:
+  audio-test-config:
+    file: ./configs/audio-test-config.yml
+
+secrets:
+  test-credentials:
+    file: ./secrets/test-credentials.env
+
+# Resource limits and reservations
+x-resource-limits: &resource-limits
+  limits:
+    cpus: '2.0'
+    memory: 2G
+  reservations:
+    cpus: '0.5'
+    memory: 512M
