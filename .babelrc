@@ -1,0 +1,56 @@
+{
+  "presets": [
+    ["@babel/preset-env", {
+      "targets": {
+        "node": "current",
+        "browsers": [
+          ">0.2%",
+          "not dead",
+          "not op_mini all",
+          "last 2 versions"
+        ]
+      },
+      "useBuiltIns": "usage",
+      "corejs": 3,
+      "modules": false
+    }],
+    "@babel/preset-typescript"
+  ],
+  "plugins": [
+    ["@babel/plugin-transform-runtime", {
+      "regenerator": true,
+      "corejs": 3
+    }],
+    "@babel/plugin-proposal-class-properties",
+    "@babel/plugin-proposal-object-rest-spread",
+    ["@babel/plugin-transform-modules-commonjs", {
+      "strict": true,
+      "noInterop": false
+    }]
+  ],
+  "env": {
+    "test": {
+      "presets": [
+        ["@babel/preset-env", {
+          "targets": {
+            "node": "current"
+          }
+        }]
+      ],
+      "plugins": [
+        "babel-plugin-dynamic-import-node"
+      ]
+    },
+    "production": {
+      "plugins": [
+        ["transform-remove-console", {
+          "exclude": ["error", "warn"]
+        }]
+      ]
+    }
+  },
+  "comments": false,
+  "minified": true,
+  "sourceMaps": true,
+  "retainLines": true
+}
