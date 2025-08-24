@@ -1,0 +1,115 @@
+# docker-compose.perf.yml
+# Performance testing environment configuration for Space Invaders JS V91
+version: '3.9'
+
+services:
+  # Main game application service
+  game-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: performance
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=performance
+      - PERFORMANCE_METRICS_ENABLED=true
+      - MAX_MEMORY_LIMIT=2048M
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Performance monitoring service (Grafana)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    depends_on:
+      - prometheus
+
+  # Metrics collection service (Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-storage:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  # Load testing service (k6)
+  k6:
+    image: loadimpact/k6:latest
+    volumes:
+      - ./performance-tests:/scripts
+    environment:
+      - K6_OUT=influxdb=http://influxdb:8086/k6
+    depends_on:
+      - influxdb
+
+  # Time-series database for metrics
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-storage:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=performance123
+      - DOCKER_INFLUXDB_INIT_ORG=space-invaders
+      - DOCKER_INFLUXDB_INIT_BUCKET=performance-metrics
+
+  # Browser testing service
+  selenium-hub:
+    image: selenium/hub:latest
+    ports:
+      - "4444:4444"
+
+  chrome:
+    image: selenium/node-chrome:latest
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+    deploy:
+      replicas: 2
+
+volumes:
+  grafana-storage:
+  prometheus-storage:
+  influxdb-storage:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# Performance testing specific configurations
+x-performance-test-config: &performance-test-config
+  GAME_LOOP_INTERVAL: 16  # ~60 FPS
+  CANVAS_WIDTH: 1920
+  CANVAS_HEIGHT: 1080
+  ENABLE_PERFORMANCE_LOGGING: "true"
+  METRICS_SAMPLING_RATE: 1000
