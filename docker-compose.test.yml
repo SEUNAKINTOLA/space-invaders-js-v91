@@ -1,0 +1,131 @@
+# docker-compose.test.yml
+# Space Invaders JS V91 - E2E Testing Environment
+# Purpose: Orchestrate end-to-end test environment for Enemy and Combat Systems
+# Last Updated: 2025-01-20
+
+version: '3.9'
+
+services:
+  # Main game service for testing
+  game-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test
+    container_name: space-invaders-test
+    environment:
+      - NODE_ENV=test
+      - GAME_PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - MONGO_URL=mongodb://mongodb:27017/space-invaders-test
+    ports:
+      - "3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./tests:/app/tests
+      - ./coverage:/app/coverage
+
+  # Redis for game state caching
+  redis:
+    image: redis:7.2-alpine
+    container_name: space-invaders-redis-test
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-test-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # MongoDB for game data persistence
+  mongodb:
+    image: mongo:6.0
+    container_name: space-invaders-mongodb-test
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=space-invaders-test
+    volumes:
+      - mongodb-test-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Test runner service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: test-runner
+    container_name: space-invaders-test-runner
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_TARGET=http://game-service:3000
+      - BENCHMARK_ENABLED=true
+    volumes:
+      - ./tests:/app/tests
+      - ./test-results:/app/test-results
+    depends_on:
+      game-service:
+        condition: service_healthy
+    command: ["python", "-m", "pytest", "tests/e2e/test_ecb1571b-4a41-4f5a-8d82-e1802887df45_complete.py", "-v"]
+
+  # Performance monitoring
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: space-invaders-prometheus-test
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus-test-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+
+  # Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: space-invaders-grafana-test
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-test-data:/var/lib/grafana
+
+volumes:
+  redis-test-data:
+  mongodb-test-data:
+  prometheus-test-data:
+  grafana-test-data:
+
+networks:
+  default:
+    name: space-invaders-test-network
+    driver: bridge
+
+# Configuration for resource limits
+x-deploy: &default-deploy
+  resources:
+    limits:
+      cpus: '0.50'
+      memory: 512M
+    reservations:
+      cpus: '0.25'
+      memory: 256M

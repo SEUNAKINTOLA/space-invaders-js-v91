@@ -1,0 +1,135 @@
+# .github/workflows/e2e.yml
+# End-to-End Test Suite Workflow for Space Invaders JS V91
+# Purpose: Executes comprehensive E2E tests for Enemy and Combat Systems
+# Last Updated: 2025-01-20
+
+name: E2E Tests
+
+on:
+  # Trigger on pull requests to main/master
+  pull_request:
+    branches: [ main, master ]
+  # Trigger on pushes to main/master
+  push:
+    branches: [ main, master ]
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: 'Enable debug logging'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '20.x'
+  PYTHON_VERSION: '3.12'
+  PLAYWRIGHT_VERSION: '1.41.0'
+  TEST_TIMEOUT: '600000' # 10 minutes in milliseconds
+
+jobs:
+  e2e-tests:
+    name: Run E2E Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # Prevent hanging jobs
+
+    services:
+      # Add Redis for test caching
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for accurate testing
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          pip install -r tests/e2e/requirements.txt
+          npx playwright install --with-deps chromium
+        env:
+          CI: true
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ env.PLAYWRIGHT_VERSION }}
+
+      - name: Start Game Server
+        run: |
+          npm run build
+          npm run start:test &
+          sleep 10 # Wait for server to be ready
+        env:
+          NODE_ENV: test
+
+      - name: Run E2E Tests
+        id: run-tests
+        run: |
+          python -m pytest tests/e2e/test_ecb1571b-4a41-4f5a-8d82-e1802887df45_complete.py \
+            --html=test-results/report.html \
+            --self-contained-html \
+            --junitxml=test-results/junit.xml \
+            -v
+        env:
+          TEST_BASE_URL: http://localhost:3000
+          DEBUG: ${{ github.event.inputs.debug_enabled }}
+          TEST_TIMEOUT: ${{ env.TEST_TIMEOUT }}
+
+      - name: Run Performance Benchmarks
+        if: always() # Run even if E2E tests fail
+        run: |
+          python tests/performance/benchmark_ecb1571b-4a41-4f5a-8d82-e1802887df45.py \
+            --output benchmark-results.json
+
+      - name: Upload Test Results
+        if: always() # Upload results regardless of test outcome
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            test-results/
+            benchmark-results.json
+          retention-days: 30
+
+      - name: Process Test Results
+        if: always()
+        run: |
+          if [ -f "test-results/junit.xml" ]; then
+            echo "Test Summary:"
+            grep -A 1 "testsuite" test-results/junit.xml | head -n 2
+          fi
+
+      - name: Update Test Status
+        if: always()
+        run: |
+          if [ "${{ steps.run-tests.outcome }}" == "failure" ]; then
+            echo "::error::E2E Tests failed. Check test results for details."
+            exit 1
+          fi
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
