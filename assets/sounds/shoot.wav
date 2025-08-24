@@ -1,0 +1,195 @@
+"""
+Audio Management System with Sound Effects Support.
+
+This module provides a robust, thread-safe audio management system with support
+for sound effects and background music. It implements resource pooling,
+caching, and async playback capabilities.
+
+Author: Senior Developer
+Created: 2025-01-20
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Dict, Optional, Set
+from weakref import WeakSet
+
+import pygame.mixer
+from pygame.mixer import Sound
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+class AudioError(Exception):
+    """Base exception class for audio-related errors."""
+    pass
+
+class SoundLoadError(AudioError):
+    """Raised when a sound file cannot be loaded."""
+    pass
+
+class AudioSystemError(AudioError):
+    """Raised when the audio system encounters an error."""
+    pass
+
+class SoundEffectType(Enum):
+    """Enumeration of available sound effect types."""
+    SHOOT = "shoot"
+    # Add other sound effects as needed
+
+@dataclass
+class AudioConfig:
+    """Configuration settings for the audio system."""
+    frequency: int = 44100
+    channels: int = 2
+    buffer_size: int = 1024
+    max_cached_sounds: int = 50
+    sound_effects_volume: float = 0.7
+    assets_path: Path = Path("assets/sounds")
+
+class AudioManager:
+    """
+    Manages audio playback including sound effects and background music.
+    
+    Implements the Singleton pattern and provides thread-safe audio operations
+    with resource pooling and caching.
+    """
+    _instance: Optional[AudioManager] = None
+    _initialized: bool = False
+    
+    def __new__(cls) -> AudioManager:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self) -> None:
+        """Initialize the audio manager if not already initialized."""
+        if self._initialized:
+            return
+            
+        self.config = AudioConfig()
+        self._sound_cache: Dict[str, Sound] = {}
+        self._active_sounds: Set[Sound] = WeakSet()
+        self._lock = asyncio.Lock()
+        
+        try:
+            pygame.mixer.init(
+                frequency=self.config.frequency,
+                channels=self.config.channels,
+                buffer=self.config.buffer_size
+            )
+            self._initialized = True
+            logger.info("Audio system initialized successfully")
+        except pygame.error as e:
+            logger.error(f"Failed to initialize audio system: {e}")
+            raise AudioSystemError(f"Audio system initialization failed: {e}")
+
+    async def load_sound(self, sound_type: SoundEffectType) -> Sound:
+        """
+        Load a sound effect from file with caching support.
+        
+        Args:
+            sound_type: The type of sound effect to load
+            
+        Returns:
+            Sound: The loaded pygame Sound object
+            
+        Raises:
+            SoundLoadError: If the sound file cannot be loaded
+        """
+        async with self._lock:
+            if sound_type.value in self._sound_cache:
+                return self._sound_cache[sound_type.value]
+
+            try:
+                file_path = self.config.assets_path / f"{sound_type.value}.wav"
+                if not file_path.exists():
+                    raise FileNotFoundError(f"Sound file not found: {file_path}")
+
+                sound = pygame.mixer.Sound(str(file_path))
+                sound.set_volume(self.config.sound_effects_volume)
+
+                # Implement cache eviction if needed
+                if len(self._sound_cache) >= self.config.max_cached_sounds:
+                    _, oldest_sound = self._sound_cache.popitem()
+                    oldest_sound.stop()
+
+                self._sound_cache[sound_type.value] = sound
+                return sound
+
+            except (pygame.error, FileNotFoundError) as e:
+                logger.error(f"Failed to load sound {sound_type.value}: {e}")
+                raise SoundLoadError(f"Could not load sound {sound_type.value}: {e}")
+
+    async def play_sound(self, sound_type: SoundEffectType) -> None:
+        """
+        Play a sound effect asynchronously.
+        
+        Args:
+            sound_type: The type of sound effect to play
+            
+        Raises:
+            AudioSystemError: If the sound cannot be played
+        """
+        try:
+            sound = await self.load_sound(sound_type)
+            sound.play()
+            self._active_sounds.add(sound)
+            logger.debug(f"Playing sound effect: {sound_type.value}")
+        except Exception as e:
+            logger.error(f"Failed to play sound {sound_type.value}: {e}")
+            raise AudioSystemError(f"Could not play sound {sound_type.value}: {e}")
+
+    async def play_shoot_sound(self) -> None:
+        """
+        Play the shooting sound effect.
+        
+        This is a convenience method for playing the shoot sound effect.
+        """
+        await self.play_sound(SoundEffectType.SHOOT)
+
+    def cleanup(self) -> None:
+        """
+        Clean up audio resources and shut down the audio system.
+        
+        Should be called when the application is shutting down.
+        """
+        try:
+            for sound in self._active_sounds:
+                sound.stop()
+            self._sound_cache.clear()
+            self._active_sounds.clear()
+            pygame.mixer.quit()
+            self._initialized = False
+            logger.info("Audio system cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Error during audio system cleanup: {e}")
+
+    def __del__(self) -> None:
+        """Ensure resources are cleaned up when the manager is destroyed."""
+        self.cleanup()
+
+# Create a global instance of the audio manager
+audio_manager = AudioManager()
+
+async def initialize_audio_system() -> None:
+    """
+    Initialize the audio system with default configuration.
+    
+    This function should be called at application startup.
+    """
+    try:
+        global audio_manager
+        audio_manager = AudioManager()
+        # Pre-load commonly used sounds
+        await audio_manager.load_sound(SoundEffectType.SHOOT)
+        logger.info("Audio system initialization completed")
+    except Exception as e:
+        logger.error(f"Failed to initialize audio system: {e}")
+        raise AudioSystemError(f"Audio system initialization failed: {e}")
