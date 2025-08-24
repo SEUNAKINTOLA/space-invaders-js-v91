@@ -1,0 +1,115 @@
+# docker-compose.yml
+# Space Invaders JS V91 - Test Environment Configuration
+# Last Updated: 2025-01-20
+# Version: 1.0.0
+
+version: '3.9'
+
+services:
+  # Main application test environment
+  game-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: space-invaders-test
+    environment:
+      - NODE_ENV=test
+      - JEST_JUNIT_OUTPUT_DIR=/test-results
+    volumes:
+      - ./:/app
+      - test-results:/test-results
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7.2-alpine
+    container_name: space-invaders-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # MongoDB for game state persistence
+  mongodb:
+    image: mongo:6.0
+    container_name: space-invaders-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=gameuser
+      - MONGO_INITDB_ROOT_PASSWORD=gamesecret
+      - MONGO_INITDB_DATABASE=spaceinvaders_test
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Performance testing service
+  performance-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.perf
+    container_name: space-invaders-perf
+    volumes:
+      - ./tests/performance:/tests
+      - perf-results:/perf-results
+    environment:
+      - BENCHMARK_OUTPUT_DIR=/perf-results
+    depends_on:
+      - game-test
+
+  # E2E testing service
+  e2e-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    container_name: space-invaders-e2e
+    volumes:
+      - ./tests/e2e:/tests
+      - e2e-results:/e2e-results
+    environment:
+      - PYTEST_ADDOPTS="--junitxml=/e2e-results/junit.xml"
+    depends_on:
+      - game-test
+
+volumes:
+  test-results:
+    name: space-invaders-test-results
+  redis-data:
+    name: space-invaders-redis-data
+  mongodb-data:
+    name: space-invaders-mongodb-data
+  perf-results:
+    name: space-invaders-perf-results
+  e2e-results:
+    name: space-invaders-e2e-results
+
+networks:
+  default:
+    name: space-invaders-test-network
+    driver: bridge
+
+# Configuration for resource limits and scaling
+x-deploy: &default-deploy
+  resources:
+    limits:
+      cpus: '0.50'
+      memory: 512M
+    reservations:
+      cpus: '0.25'
+      memory: 256M
