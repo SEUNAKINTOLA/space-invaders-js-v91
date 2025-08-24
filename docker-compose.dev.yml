@@ -1,0 +1,98 @@
+# docker-compose.dev.yml
+# Development environment configuration for Space Invaders JS V91
+version: '3.8'
+
+services:
+  # Frontend development service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+    container_name: space-invaders-frontend-dev
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"  # Development server
+      - "9229:9229"  # Node.js debugging port
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true  # Enable hot reload on Windows/WSL
+    command: npm run dev
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Development database
+  db:
+    image: postgres:15-alpine
+    container_name: space-invaders-db-dev
+    environment:
+      - POSTGRES_DB=space_invaders_dev
+      - POSTGRES_USER=developer
+      - POSTGRES_PASSWORD=dev_password_123  # Note: Use .env file in production
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U developer -d space_invaders_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: space-invaders-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Development tools service
+  dev-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev-tools
+    container_name: space-invaders-dev-tools
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - frontend
+      - db
+    command: npm run lint:watch
+
+volumes:
+  pgdata:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  default:
+    name: space-invaders-dev
+    driver: bridge
+
+# Development-specific configurations
+x-development-configs: &development-configs
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
