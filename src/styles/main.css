@@ -1,0 +1,196 @@
+/* main.css
+ * Main stylesheet for the project
+ * Version: 1.0.0
+ * Last updated: 2025
+ */
+
+/* --------------------
+ * CSS Reset & Defaults
+ * -------------------- */
+:root {
+  /* Color System */
+  --color-primary: #2563eb;
+  --color-secondary: #475569;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+  --color-warning: #ca8a04;
+  --color-info: #0891b2;
+  
+  /* Typography */
+  --font-primary: system-ui, -apple-system, sans-serif;
+  --font-secondary: ui-serif, Georgia, serif;
+  --font-size-base: 1rem;
+  --line-height-base: 1.5;
+  
+  /* Spacing System */
+  --spacing-unit: 0.25rem;
+  --spacing-1: calc(var(--spacing-unit) * 1);  /* 4px */
+  --spacing-2: calc(var(--spacing-unit) * 2);  /* 8px */
+  --spacing-4: calc(var(--spacing-unit) * 4);  /* 16px */
+  --spacing-8: calc(var(--spacing-unit) * 8);  /* 32px */
+  
+  /* Layout */
+  --container-max-width: 1200px;
+  --border-radius: 0.25rem;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 300ms ease-in-out;
+}
+
+/* Modern CSS Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-primary);
+  line-height: var(--line-height-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Layout Utilities */
+.container {
+  width: 100%;
+  max-width: var(--container-max-width);
+  margin-inline: auto;
+  padding-inline: var(--spacing-4);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Flexbox Utilities */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+/* Grid Utilities */
+.grid {
+  display: grid;
+}
+
+.gap-4 {
+  gap: var(--spacing-4);
+}
+
+/* Typography */
+.text-base {
+  font-size: var(--font-size-base);
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+/* Colors */
+.text-primary {
+  color: var(--color-primary);
+}
+
+.bg-primary {
+  background-color: var(--color-primary);
+}
+
+/* Interactive Elements */
+.button {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--spacing-2) var(--spacing-4);
+  border-radius: var(--border-radius);
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.button:hover {
+  opacity: 0.9;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Media Queries */
+@media (min-width: 640px) {
+  .sm\:flex {
+    display: flex;
+  }
+}
+
+@media (min-width: 768px) {
+  .md\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .lg\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none;
+  }
+  
+  body {
+    color: #000;
+    background: #fff;
+  }
+  
+  a {
+    text-decoration: underline;
+  }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #60a5fa;
+    /* Add other dark mode color variations */
+  }
+}
