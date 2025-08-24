@@ -1,0 +1,163 @@
+# .github/workflows/test.yml
+# Space Invaders JS V91 - Automated Testing Workflow
+# Last Updated: 2025-01-20
+
+name: Test Suite
+
+# Trigger workflow on push to main/develop and pull requests
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+
+# Environment variables used across jobs
+env:
+  NODE_VERSION: '20.x'
+  PYTHON_VERSION: '3.12'
+  COVERAGE_THRESHOLD: 80
+  PERFORMANCE_THRESHOLD_MS: 100
+
+jobs:
+  # Static Analysis and Linting
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+          npm install -g eslint prettier
+
+      - name: Run ESLint
+        run: eslint . --max-warnings 0
+
+      - name: Check Code Formatting
+        run: prettier --check .
+
+  # Unit and Integration Tests
+  test:
+    name: Unit & Integration Tests
+    needs: static-analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Tests with Coverage
+        run: |
+          npm run test:coverage
+          echo "Checking coverage meets minimum threshold of $COVERAGE_THRESHOLD%"
+          npm run coverage:check
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  # End-to-End Tests
+  e2e:
+    name: End-to-End Tests
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/e2e/requirements.txt
+
+      - name: Run E2E Tests
+        run: python -m pytest tests/e2e/test_c9ae078d-124b-44d5-bb51-fa238298557e_complete.py
+
+  # Performance Benchmarks
+  performance:
+    name: Performance Tests
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/performance/requirements.txt
+
+      - name: Run Performance Benchmarks
+        run: |
+          python tests/performance/benchmark_c9ae078d-124b-44d5-bb51-fa238298557e.py \
+            --threshold ${{ env.PERFORMANCE_THRESHOLD_MS }}
+
+  # Final Validation
+  validate:
+    name: Final Validation
+    needs: [e2e, performance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Update Milestone Status
+        run: |
+          echo "All tests passed successfully"
+          echo "Updating milestone validation status"
+          # Add milestone status update logic here if needed
+
+      - name: Generate Test Report
+        if: always()
+        run: |
+          echo "Generating comprehensive test report"
+          # Add report generation logic here if needed
+
+# Post-workflow notifications
+    - name: Notify on Failure
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: 'Test Workflow Failure',
+            body: 'The test workflow has failed. Please check the logs for details.'
+          })

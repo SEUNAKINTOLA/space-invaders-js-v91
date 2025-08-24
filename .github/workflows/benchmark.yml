@@ -1,0 +1,128 @@
+# .github/workflows/benchmark.yml
+# Performance Benchmarking Workflow for Space Invaders JS V91
+# Runs comprehensive performance tests and captures metrics for analysis
+
+name: Performance Benchmarks
+
+on:
+  # Run benchmarks on schedule and manual trigger
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:  # Allow manual triggers
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/performance/**'
+      - '.github/workflows/benchmark.yml'
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '20.x'
+  BENCHMARK_TIMEOUT: '3600'  # 1 hour timeout for benchmarks
+  BENCHMARK_RESULTS_DIR: './benchmark-results'
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          npm ci
+
+      - name: Create Results Directory
+        run: mkdir -p ${{ env.BENCHMARK_RESULTS_DIR }}
+
+      - name: Run Performance Benchmarks
+        id: run-benchmarks
+        continue-on-error: true  # Don't fail workflow on performance regression
+        run: |
+          python tests/performance/benchmark_c9ae078d-124b-44d5-bb51-fa238298557e.py \
+            --output-dir ${{ env.BENCHMARK_RESULTS_DIR }} \
+            --json-output benchmark-results.json \
+            --html-output benchmark-report.html
+        env:
+          BENCHMARK_ENV: 'ci'
+          NODE_ENV: 'production'
+
+      - name: Process Benchmark Results
+        if: always()
+        run: |
+          if [ -f "${{ env.BENCHMARK_RESULTS_DIR }}/benchmark-results.json" ]; then
+            echo "Benchmark results available"
+            cat ${{ env.BENCHMARK_RESULTS_DIR }}/benchmark-results.json | jq -r '.summary'
+          else
+            echo "::error::Benchmark results file not found"
+            exit 1
+          fi
+
+      - name: Upload Benchmark Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: ${{ env.BENCHMARK_RESULTS_DIR }}
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Compare with Previous Results
+        if: success()
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Game Engine Performance Benchmarks
+          tool: 'python'
+          output-file-path: ${{ env.BENCHMARK_RESULTS_DIR }}/benchmark-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '200%'
+          comment-on-alert: true
+          fail-on-alert: false
+
+      - name: Notify on Significant Changes
+        if: failure() || success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const results = require('${{ env.BENCHMARK_RESULTS_DIR }}/benchmark-results.json');
+            const significantChanges = results.metrics.filter(m => Math.abs(m.change) > 10);
+            
+            if (significantChanges.length > 0) {
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '🔍 Significant Performance Changes Detected',
+                body: `Performance changes detected in latest benchmark run:
+                ${significantChanges.map(m => `- ${m.name}: ${m.change}%`).join('\n')}
+                
+                [View full benchmark results](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              });
+            }
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ${{ env.BENCHMARK_RESULTS_DIR }}
+          npm cache clean --force
+          pip cache purge
