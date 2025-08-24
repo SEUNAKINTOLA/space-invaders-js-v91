@@ -1,0 +1,135 @@
+# .github/workflows/performance.yml
+
+name: Performance Benchmarks
+
+# Run on push to main/master and PRs targeting main/master
+# Also allow manual triggering for on-demand performance testing
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'src/core/**'
+      - 'src/utils/Performance.js'
+      - '.github/workflows/performance.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'src/core/**'
+      - 'src/utils/Performance.js'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+    
+    # Prevent concurrent benchmark runs to avoid resource contention
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: |
+          npm ci
+        env:
+          NODE_ENV: development
+
+      # Warm up the environment to ensure consistent benchmarks
+      - name: Environment Warmup
+        run: |
+          node -e "for(let i=0;i<1000000;i++){};"
+
+      # Run game loop performance benchmarks
+      - name: Game Loop Benchmarks
+        run: |
+          npm run benchmark:gameloop
+        env:
+          NODE_ENV: production
+          BENCHMARK_ITERATIONS: 10000
+          BENCHMARK_WARMUP: true
+
+      # Run rendering system benchmarks
+      - name: Rendering System Benchmarks
+        run: |
+          npm run benchmark:renderer
+        env:
+          NODE_ENV: production
+          CANVAS_MOCK: true
+          BENCHMARK_ITERATIONS: 5000
+
+      # Generate performance report
+      - name: Generate Performance Report
+        run: |
+          npm run benchmark:report
+        continue-on-error: true
+
+      # Store benchmark results as artifacts
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-benchmarks
+          path: |
+            benchmark/results/*.json
+            benchmark/reports/*.html
+          retention-days: 90
+
+      # Compare with baseline if this is a PR
+      - name: Compare with Baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          npm run benchmark:compare
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Post results as PR comment if performance degradation detected
+      - name: Post Performance Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('benchmark/results/comparison.json', 'utf8'));
+            
+            if (report.hasDegradation) {
+              const body = `⚠️ Performance Regression Detected!\n\n${report.summary}`;
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
+
+      # Alert on significant performance degradation
+      - name: Alert on Performance Degradation
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = {
+              title: '🚨 Performance Degradation Detected',
+              body: 'Significant performance degradation detected in latest benchmarks. Please investigate.',
+              labels: ['performance', 'needs-investigation']
+            };
+            github.rest.issues.create({
+              ...context.repo,
+              ...issue
+            });
+
+env:
+  # Global environment variables
+  BENCHMARK_TIMEOUT: 300000
+  BENCHMARK_SAMPLES: 50
+  NODE_OPTIONS: "--max-old-space-size=4096"
