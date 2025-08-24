@@ -1,0 +1,85 @@
+name: Particle System Performance Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/particle/**'
+      - 'tests/performance/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/particle/**'
+      - 'tests/performance/**'
+
+jobs:
+  performance-test:
+    name: Run Particle System Performance Tests
+    runs-on: ubuntu-latest
+    
+    env:
+      NODE_ENV: test
+      PARTICLE_MAX_COUNT: 10000
+      BENCHMARK_ITERATIONS: 100
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run performance benchmarks
+        run: |
+          npm run benchmark:particle-system
+        timeout-minutes: 10
+
+      - name: Analyze performance results
+        run: node scripts/analyze-performance.js
+        
+      - name: Check performance thresholds
+        run: |
+          echo "Checking particle system performance thresholds..."
+          node scripts/check-performance-thresholds.js
+        env:
+          MIN_FPS: 60
+          MAX_MEMORY_USAGE: 100
+          MAX_CPU_USAGE: 80
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: |
+            performance-results/
+            benchmark-reports/
+          retention-days: 14
+
+      - name: Performance regression check
+        run: |
+          echo "Comparing with baseline performance..."
+          node scripts/compare-performance.js
+        env:
+          PERFORMANCE_THRESHOLD: 5 # Maximum allowed performance degradation in percentage
+
+      - name: Report Status
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const message = `⚠️ Performance tests failed!\n
+              - Check the detailed results in the artifacts
+              - Review particle system optimizations
+              - Verify memory management`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
